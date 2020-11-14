@@ -39,7 +39,8 @@ echo "SLURM_JOB_ID: $SLURM_JOB_ID"
 echo "SLURM_NODELIST: $SLURM_NODELIST"
 echo "SLURM_GPULIST: $SLURM_JOB_GPUS"
 echo "TRAINING DATASET: $1"
-echo "BACKBONE MODEL: $2"
+echo "JSON ANNOTATIONS FILE: $2"
+echo "BACKBONE MODEL: $3"
 echo "=========================================="
 
 <<MULTILINE-COMMENTS
@@ -58,4 +59,4 @@ echo "=========================================="
         - "COCO-InstanceSegmentation/mask_rcnn_X_101_32x8d_FPN_3x.yaml" 
 MULTILINE-COMMENTS
 
-srun python3 train_semi.py --num-gpus=2 --training-dataset=$1 --backbone=$2
+srun python3 train_semi.py --num-gpus=2 --training-dataset=$1 --json-name=$2 --backbone=$3

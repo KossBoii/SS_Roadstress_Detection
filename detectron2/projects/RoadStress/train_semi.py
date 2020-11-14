@@ -68,7 +68,7 @@ def config(args, name):
     cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url(args.backbone)    
 
     # dataset configuration  
-    cfg.DATASETS.TRAIN = (name,)
+    cfg.DATASETS.TRAIN = (args.training_dataset,)
     
     cfg.DATALOADER.NUM_WORKERS = 2
     cfg.SOLVER.IMS_PER_BATCH = 2                    # 2 GPUs --> each GPU will see 1 image per batch
@@ -87,11 +87,6 @@ def config(args, name):
     cfg.INPUT.MAX_SIZE_TRAIN = 800
     cfg.INPUT.MIN_SIZE_TEST = 600
     cfg.INPUT.MAX_SIZE_TEST = 800
-
-    #cfg.MODEL.RPN.PRE_NMS_TOPK_TRAIN = 12000
-    #cfg.MODEL.RPN.PRE_NMS_TOPK_TEST = 10000
-    #cfg.MODEL.RPN.POST_NMS_TOPK_TRAIN = 2000
-    #cfg.MODEL.RPN.POST_NMS_TOPK_TEST = 10000
 
     # Setup Logging folder
     curTime = datetime.now()
@@ -124,20 +119,19 @@ class Trainer(DefaultTrainer):
             output_folder = "coco_eval"
         return COCOEvaluator(dataset_name, cfg, True, output_folder)
 
-name=""
-
 def main(args):
-    name = ""
-    if args.training_dataset == "4_15_2020":
-        name = "roadstress_old_train"
-    elif args.training_dataset == "5_16_2020":
-        name = "roadstress_new_train"
-    print("Done Registering the dataset")
+    if args.training_dataset == "roadstress_old_train":
+        name = "4_15_2020"
+    elif args.training_dataset == "roadstress_new_train":
+        name = "5_16_2020"
 
     # Register the dataset:
-    DatasetCatalog.register(name , get_roadstress_dicts_modified("dataset/semi_sup_learning/" + args.training_dataset + "/", "09042020143155_annos.json"))
-    MetadataCatalog.get(name).set(thing_classes=["roadstress"])            # specify the category names
-    MetadataCatalog.get(name).set(evaluator_type="coco")                   # coco evaluator
+    for d in ["train"]:
+        DatasetCatalog.register(args.training_dataset , lambda: get_roadstress_dicts_modified(
+            "dataset/semi_sup_learning/" + name + "/", args.json_name))
+        MetadataCatalog.get(name).set(thing_classes=["roadstress"])            # specify the category names
+        MetadataCatalog.get(name).set(evaluator_type="coco")                   # coco evaluator
+    print("Done Registering the dataset")
 
     # Getting the metadata for the roadstress dataset    
     roadstress_metadata = MetadataCatalog.get(name)
@@ -189,6 +183,7 @@ Run on multiple machines:
     )
     parser.add_argument("--training-dataset", required=True, help="dataset name to train")
     parser.add_argument("--backbone", default="COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml", help="backbone model")
+    parser.add_argument("--json-name", required=True, help="json file for annotations")
 
     # PyTorch still may leave orphan processes in multi-gpu training.
     # Therefore we use a deterministic way to obtain port,
