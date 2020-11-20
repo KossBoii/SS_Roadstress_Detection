@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=road_stress
-#SBATCH --nodes=2
+#SBATCH --nodes=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=8G
 #SBATCH --partition=gpu
@@ -59,4 +59,4 @@ echo "=========================================="
         - "COCO-InstanceSegmentation/mask_rcnn_X_101_32x8d_FPN_3x.yaml" 
 MULTILINE-COMMENTS
 
-srun python3 train_semi.py --num-gpus=2 --training-dataset=$1 --json-name=$2 --backbone=$3
+srun python3 train_semi.py --num-gpus=2 --training-path=$1 --training-dataset=$2 --json-name=$3 --backbone=$4

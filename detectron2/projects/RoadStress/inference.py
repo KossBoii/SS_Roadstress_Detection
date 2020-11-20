@@ -28,6 +28,7 @@ def get_parser():
 	parser = argparse.ArgumentParser(description="Detectron2 inference for road stress")
 	parser.add_argument("--config-file", required=True, metavar="FILE", help="path to config file")
 	parser.add_argument("--dataset", required=True, help="path to dataset folder")
+	parser.add_argument("--exclude", help="exclude all the JPG images name inside this folder")
 	parser.add_argument("--weight", required=True, metavar="FILE", help="path to weight file")
 	parser.add_argument("--output", help="A file or directory to save output visualizations. If not given, will show output in an OpenCV window.")
 	parser.add_argument("--confidence-threshold", type=float, default=0.5, help="Minimum score for instance predictions to be shown")
@@ -45,7 +46,8 @@ def run_on_image(predictor, img_path):
 		# Get binary mask for each instances
 		bin_masks = instances.get("pred_masks").detach().numpy()
 		dicts = {}
-		dicts["filename"] = img_path[-12:]
+		dicts["filename"] = str(img_path[-12:])
+		print("|||%s|||" % dicts["filename"])
 		dicts["size"] = random.randint(1000000, 9999999)
 
 		# print("Shape: " + str(bin_masks.shape))
@@ -98,15 +100,6 @@ if __name__ == "__main__":
 	logger = setup_logger()
 	logger.info("Arguments: " + str(args))
 
-	# Register the dataset:
-	for d in ["train", "val"]:
-		DatasetCatalog.register("roadstress_" + d, lambda d=d: get_roadstress_dicts("dataset/roadstress_new/" + d))
-		MetadataCatalog.get("roadstress_" + d).set(thing_classes=["roadstress"])
-		MetadataCatalog.get("roadstress_" + d).set(evaluator_type="coco")
-		roadstress_metadata = MetadataCatalog.get("roadstress_train")
-	print("Done Registering the dataset")
-
-
 	cfg = config(args)
 	print(cfg.dump())
 	print("Finish Setting Up Config")
@@ -132,18 +125,21 @@ if __name__ == "__main__":
 
 	result_dicts = {}
 	count = 0
+	exclude_imgs = []	
+
+	if(args.exclude != "none"):
+		for img_path in glob.iglob(args.exclude + "/*.JPG"):
+			exclude_imgs.append(str(img_path[-12:]))
 
 	for img_path in glob.iglob(args.dataset + "/*.JPG"):
+		if(str(img_path[-12:]) in exclude_imgs):
+			continue
 		result, count = run_on_image(predictor, img_path)
 		result_dicts[result["filename"] + "." + str(result["size"])] = result
 		print("Finish generate predictions for %s. Predict %d instances" % (result["filename"], count))
 
-	with open("pseudoLabel.json", "w") as f:
-		json.dump(result_dicts, f)
-
-	# result = run_on_image(predictor, args.dataset + "DJI_0001.JPG")
-	# print(result)
-
+	with open("./labels/pseudoLabel_"+ cfg.OUTPUT_DIR[cfg.OUTPUT_DIR.rfind('/') + 1:] +".json", "w") as f:
+		f.write(json.dumps(result_dicts, separators=(',',':')))
 
 
 

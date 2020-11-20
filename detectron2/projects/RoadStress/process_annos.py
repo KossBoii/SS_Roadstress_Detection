@@ -1,9 +1,10 @@
 import json
+import argparse
+import re
 
 def custom_default_argument_parser(epilog=None):
     parser = argparse.ArgumentParser(
-        epilog=epilog
-        or f,
+        epilog=epilog,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--src", required=True)
@@ -23,3 +24,13 @@ if __name__ == "__main__":
     result_annos = {**annos2, **annos1}
     with open("result_annos.json", "w") as f:
         f.write(json.dumps(result_annos, separators=(',', ':')))
+    f.close()
+    
+    str = ""
+    with open("result_annos.json", "r") as f:
+        str = f.read()
+        re.sub('\n', '', str)
+        re.sub(' ', '', str)
+
+    with open("result_annos.json", "w") as f:
+        f.write(str)

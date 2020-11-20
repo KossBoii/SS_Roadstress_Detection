@@ -74,13 +74,13 @@ def config(args, name):
     cfg.SOLVER.IMS_PER_BATCH = 2                    # 2 GPUs --> each GPU will see 1 image per batch
     cfg.SOLVER.WARMUP_ITERS = 2000                  # 
     cfg.SOLVER.BASE_LR = 0.001
-    cfg.SOLVER.MAX_ITER = 150000
+    cfg.SOLVER.MAX_ITER = 1000
     cfg.SOLVER.CHECKPOINT_PERIOD = 10000
-    cfg.MODEL.ANCHOR_GENERATOR.SIZES = [[4,8,16,32,64,128]]
-    cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 1024	# 1024
+    cfg.MODEL.ANCHOR_GENERATOR.SIZES = [[8,16,32,64,128]]
+    cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 512	# 1024
     cfg.MODEL.ROI_HEADS.NUM_CLASSES = 1             # 1 category (roadway stress)
 
-    cfg.MODEL.ANCHOR_GENERATOR.ASPECT_RATIOS = [[0.25, 0.5, 1.0, 2.0, 4.0, 8.0]]	# [[0.25, 0.5, 1.0, 2.0, 4.0, 8.0]]
+    cfg.MODEL.ANCHOR_GENERATOR.ASPECT_RATIOS = [[0.25, 0.5, 1.0, 2.0]]	# [[0.25, 0.5, 1.0, 2.0, 4.0, 8.0]]
     cfg.MODEL.ROI_HEADS.POSITIVE_FRACTION = 0.7
     cfg.MODEL.ROI_HEADS.IOU_THRESHOLDS = [0.5]
     cfg.INPUT.MIN_SIZE_TRAIN = (600,)
@@ -120,22 +120,17 @@ class Trainer(DefaultTrainer):
         return COCOEvaluator(dataset_name, cfg, True, output_folder)
 
 def main(args):
-    if args.training_dataset == "roadstress_old_train":
-        name = "4_15_2020"
-    elif args.training_dataset == "roadstress_new_train":
-        name = "5_16_2020"
-
     # Register the dataset:
     for d in ["train"]:
         DatasetCatalog.register(args.training_dataset , lambda: get_roadstress_dicts_modified(
-            "dataset/semi_sup_learning/" + name + "/", args.json_name))
-        MetadataCatalog.get(name).set(thing_classes=["roadstress"])            # specify the category names
-        MetadataCatalog.get(name).set(evaluator_type="coco")                   # coco evaluator
+            os.path.join(args.training_path, args.training_dataset), args.json_name))
+        MetadataCatalog.get(args.training_dataset).set(thing_classes=["roadstress"])            # specify the category names
+        MetadataCatalog.get(args.training_dataset).set(evaluator_type="coco")                   # coco evaluator
     print("Done Registering the dataset")
 
     # Getting the metadata for the roadstress dataset    
-    roadstress_metadata = MetadataCatalog.get(name)
-    cfg = config(args, name)                      # setup the config from the cmd arguments
+    roadstress_metadata = MetadataCatalog.get(args.training_dataset)
+    cfg = config(args, args.training_dataset)                      # setup the config from the cmd arguments
     cfg.dump()
 
     #----------------------------------------- Trainer Training Loop ----------------------------------------------------
@@ -181,6 +176,7 @@ Run on multiple machines:
     parser.add_argument(
         "--machine-rank", type=int, default=0, help="the rank of this machine (unique per machine)"
     )
+    parser.add_argument("--training-path", required=True, help="base path of dataset")
     parser.add_argument("--training-dataset", required=True, help="dataset name to train")
     parser.add_argument("--backbone", default="COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml", help="backbone model")
     parser.add_argument("--json-name", required=True, help="json file for annotations")

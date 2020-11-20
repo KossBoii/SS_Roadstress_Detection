@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=road_stress
-#SBATCH --nodes=2
+#SBATCH --nodes=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=8G
 #SBATCH --partition=gpu

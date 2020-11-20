@@ -17,14 +17,6 @@ echo "=========================================="
 echo "SLURM_JOB_ID: $SLURM_JOB_ID"
 echo "SLURM_NODELIST: $SLURM_NODELIST"
 echo "SLURM_NODELIST: $SLURM_JOB_GPUS"
-echo "MODEL_FOLDER_ID: $1"
-echo "DATASET_PATH: $2"
-echo "EXCLUDE_PATH: $3"
 echo "=========================================="
 
-srun python3 inference.py --config-file=./output/$1/config.yaml \
-	--dataset=$2 \
-	--exclude=$3 \
-	--weight=./output/$1/model_final.pth \
-	--output ./prediction \
-	--confidence-threshold 0.40
+srun python3 process_annos.py --src=$1 --dest=$2
