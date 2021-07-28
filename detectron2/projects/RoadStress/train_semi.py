@@ -3,6 +3,7 @@ import sys
 logger = logging.getLogger("detectron2")
 import random
 from process_annos import combine_annos
+import gc
 
 model_id_to_backbone = {
     '07102020155403': 'COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml',
@@ -81,17 +82,17 @@ def config(args, model_id):
     # dataset configuration  
     cfg.DATASETS.TRAIN = (args.training_dataset,)
     
-    cfg.DATALOADER.NUM_WORKERS = 8
+    cfg.DATALOADER.NUM_WORKERS = 4
     cfg.SOLVER.IMS_PER_BATCH = 1                    # 2 GPUs --> each GPU will see 1 image per batch
     cfg.SOLVER.WARMUP_ITERS = 2000                  # 
     cfg.SOLVER.BASE_LR = 0.001
     cfg.SOLVER.MAX_ITER = 30000
     cfg.SOLVER.CHECKPOINT_PERIOD = 10000
-    cfg.MODEL.ANCHOR_GENERATOR.SIZES = [[8,16,32,64,128]]
-    cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 256	# 1024
+    cfg.MODEL.ANCHOR_GENERATOR.SIZES = [[4,8,16,32,64]]
+    cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 128	# 1024
     cfg.MODEL.ROI_HEADS.NUM_CLASSES = 1             # 1 category (roadway stress)
 
-    cfg.MODEL.ANCHOR_GENERATOR.ASPECT_RATIOS = [[0.25, 0.5, 1.0, 2.0]]	# [[0.25, 0.5, 1.0, 2.0, 4.0, 8.0]]
+    cfg.MODEL.ANCHOR_GENERATOR.ASPECT_RATIOS = [[0.5, 1.0, 2.0]]	# [[0.25, 0.5, 1.0, 2.0, 4.0, 8.0]]
     cfg.MODEL.ROI_HEADS.POSITIVE_FRACTION = 0.7
     cfg.MODEL.ROI_HEADS.IOU_THRESHOLDS = [0.5]
     cfg.INPUT.MIN_SIZE_TRAIN = (600,)
@@ -245,6 +246,9 @@ def main(args):
                         args.model_id
         )
 
+        del model
+        del predictor
+        gc.collect()
         #----------------------------------------- Trainer Training Loop ----------------------------------------------------
         # Register the dataset:
         for d in ["train"]:
