@@ -1,9 +1,17 @@
 from utils import *
 import sys
 logger = logging.getLogger("detectron2")
-from detectron2.utils.visualizer import Visualizer, ColorMode
 import random
 from process_annos import combine_annos
+
+model_id_to_backbone = {
+    '07102020155403': 'COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml',
+    '07112020084228': 'COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml',
+    '07102020155420': 'COCO-InstanceSegmentation/mask_rcnn_R_101_FPN_3x.yaml',
+    '07112020103104': 'COCO-InstanceSegmentation/mask_rcnn_R_101_FPN_3x.yaml',
+    '07102020155432': 'COCO-InstanceSegmentation/mask_rcnn_X_101_32x8d_FPN_3x.yaml',
+    '07112020170550': 'COCO-InstanceSegmentation/mask_rcnn_X_101_32x8d_FPN_3x.yaml',
+}
 
 '''
     Backbone model:
@@ -65,10 +73,10 @@ def get_roadstress_dicts_modified(img_dir, anno_json_name):
     return dataset_dicts
 
 
-def config(args, name):
+def config(args, model_id):
     cfg = get_cfg()
-    cfg.merge_from_file(model_zoo.get_config_file(args.backbone))
-    cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url(args.backbone)    
+    cfg.merge_from_file(model_zoo.get_config_file(model_id_to_backbone[model_id]))
+    cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url(model_id_to_backbone[model_id])    
 
     # dataset configuration  
     cfg.DATASETS.TRAIN = (args.training_dataset,)
@@ -221,13 +229,13 @@ def main(args):
                 print("Finish generate predictions for %s. Predict %d instances" % (result["filename"], instance_count))
 
                 # save the pseudo-label annotation file
-                with open('./pseudo/pseudoLabel_' + cfg.OUTPUT_DIR[-14:] + '_' + num_imgs_pseudo + '.json', "w") as f:
+                with open('./pseudo/pseudoLabel_' + args.model_id + '_' + str(num_imgs_pseudo) + '.json', "w") as f:
                     json.dump(result_dicts, f)
 
         # Combine pseudo-label with original annotation file
         com_annos_filename = combine_annos('.dataset/train/' + args.training_dataset + '/via_export_json.json', 
-                        './pseudo/pseudoLabel_' + cfg.OUTPUT_DIR[-14:] + '_' + num_imgs_pseudo + '.json', 
-                        cfg.OUTPUT_DIR[-14:]
+                        './pseudo/pseudoLabel_' + args.model_id + '_' + str(num_imgs_pseudo) + '.json', 
+                        args.model_id
         )
 
         #----------------------------------------- Trainer Training Loop ----------------------------------------------------
@@ -239,6 +247,9 @@ def main(args):
             MetadataCatalog.get(args.training_dataset).set(thing_classes=["roadstress"])            # specify the category names
             MetadataCatalog.get(args.training_dataset).set(evaluator_type="coco")                   # coco evaluator
         print("Done Registering the dataset")
+
+        cfg = config(args, args.model_id)
+        cfg.MODEL.WEIGHTS = os.path.join('./output/' + args.model_id, 'model_final.pth')
 
         trainer = Trainer(cfg)
         trainer.resume_or_load(resume=False)
@@ -271,22 +282,19 @@ Run on multiple machines:
 """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--config-file", default="", metavar="FILE", help="path to config file")
     parser.add_argument(
         "--resume",
         action="store_true",
         help="whether to attempt to resume from the checkpoint directory",
     )
-    parser.add_argument("--eval-only", action="store_true", help="perform evaluation only")
     parser.add_argument("--num-gpus", type=int, default=1, help="number of gpus *per machine*")
     parser.add_argument("--num-machines", type=int, default=1, help="total number of machines")
     parser.add_argument(
         "--machine-rank", type=int, default=0, help="the rank of this machine (unique per machine)"
     )
-    parser.add_argument("--training-path", required=True, help="base path of dataset")
     parser.add_argument("--training-dataset", required=True, help="dataset name to train")
-    parser.add_argument("--backbone", default="COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml", help="backbone model")
-    parser.add_argument("--json-name", required=True, help="json file for annotations")
+    parser.add_argument("--model_id", required=True, help="model id from beginning")
+    # parser.add_argument("--backbone", default="COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml", help="backbone model")
 
     # PyTorch still may leave orphan processes in multi-gpu training.
     # Therefore we use a deterministic way to obtain port,
