@@ -31,7 +31,7 @@ model_id_to_backbone = {
 ''' 
 def get_roadstress_dicts_modified(img_dir, anno_json_name):
     # Load and read json file stores information about annotations
-    json_file = './pseudo/' + anno_json_name
+    json_file = anno_json_name
     with open(json_file) as f:
         imgs_anns = json.load(f)
 
@@ -41,7 +41,7 @@ def get_roadstress_dicts_modified(img_dir, anno_json_name):
             record = {}         # a dictionary to store all necessary info of each image in the dataset
             
             # open the image to get the height and width
-            filename = os.path.join(img_dir, v["filename"])
+            filename = img_dir + '/' + v["filename"]
             print(filename)
             height, width = cv2.imread(filename).shape[:2]
             
@@ -54,9 +54,9 @@ def get_roadstress_dicts_modified(img_dir, anno_json_name):
             annos = v["regions"]
             objs = []
             for anno in annos:
-                anno = anno["shape_attributes"]
-                px = anno["all_points_x"]
-                py = anno["all_points_y"]
+                shape_attr = anno["shape_attributes"]
+                px = shape_attr["all_points_x"]
+                py = shape_attr["all_points_y"]
                 poly = [(x + 0.5, y + 0.5) for x, y in zip(px, py)]
                 poly = [p for x in poly for p in x]
 
@@ -82,13 +82,13 @@ def config(args, model_id):
     cfg.DATASETS.TRAIN = (args.training_dataset,)
     
     cfg.DATALOADER.NUM_WORKERS = 8
-    cfg.SOLVER.IMS_PER_BATCH = 2                    # 2 GPUs --> each GPU will see 1 image per batch
+    cfg.SOLVER.IMS_PER_BATCH = 1                    # 2 GPUs --> each GPU will see 1 image per batch
     cfg.SOLVER.WARMUP_ITERS = 2000                  # 
     cfg.SOLVER.BASE_LR = 0.001
-    cfg.SOLVER.MAX_ITER = 20000
+    cfg.SOLVER.MAX_ITER = 30000
     cfg.SOLVER.CHECKPOINT_PERIOD = 10000
     cfg.MODEL.ANCHOR_GENERATOR.SIZES = [[8,16,32,64,128]]
-    cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 128	# 1024
+    cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 256	# 1024
     cfg.MODEL.ROI_HEADS.NUM_CLASSES = 1             # 1 category (roadway stress)
 
     cfg.MODEL.ANCHOR_GENERATOR.ASPECT_RATIOS = [[0.25, 0.5, 1.0, 2.0]]	# [[0.25, 0.5, 1.0, 2.0, 4.0, 8.0]]
@@ -110,7 +110,6 @@ def config(args, model_id):
     if not os.path.exists(os.getcwd() + "/output/" + curTime.strftime("%m%d%Y%H%M%S")):    
         os.makedirs(os.getcwd() + "/output/" + curTime.strftime("%m%d%Y%H%M%S"), exist_ok=True)
 
-    cfg.freeze()                    # make the configuration unchangeable during the training process
     default_setup(cfg, args)
     return cfg
 
@@ -165,6 +164,12 @@ def run_on_image(predictor, img_path):
             for j in range(1, len(pairs[0]), 2):
                 y_pts.append(pairs[0][j])
 
+            if len(x_pts) < 6:
+                temp_count = 6 - len(x_pts)
+                for ii in range(0, temp_count):
+                    x_pts.append(x_pts[ii])
+                    y_pts.append(y_pts[ii])
+
             region = {}
             temp = {}
             # shape_attributes
@@ -179,7 +184,7 @@ def run_on_image(predictor, img_path):
             }
             regions.append(region)
     
-    dicts['regions'] = region
+    dicts['regions'] = regions
     dicts['file_attributes'] = {}
 
     return dicts, count
@@ -231,9 +236,11 @@ def main(args):
                 # save the pseudo-label annotation file
                 with open('./pseudo/pseudoLabel_' + args.model_id + '_' + str(num_imgs_pseudo) + '.json', "w") as f:
                     json.dump(result_dicts, f)
+                
+                count = count + 1
 
         # Combine pseudo-label with original annotation file
-        com_annos_filename = combine_annos('.dataset/train/' + args.training_dataset + '/via_export_json.json', 
+        com_annos_filename = combine_annos('./dataset/train/' + args.training_dataset + '/via_export_json.json', 
                         './pseudo/pseudoLabel_' + args.model_id + '_' + str(num_imgs_pseudo) + '.json', 
                         args.model_id
         )
@@ -242,7 +249,7 @@ def main(args):
         # Register the dataset:
         for d in ["train"]:
             DatasetCatalog.register(args.training_dataset , lambda: get_roadstress_dicts_modified(
-                '.dataset/pseudo/' + args.training_dataset, com_annos_filename)
+                './dataset/pseudo/' + args.training_dataset, com_annos_filename)
             )
             MetadataCatalog.get(args.training_dataset).set(thing_classes=["roadstress"])            # specify the category names
             MetadataCatalog.get(args.training_dataset).set(evaluator_type="coco")                   # coco evaluator
@@ -250,6 +257,7 @@ def main(args):
 
         cfg = config(args, args.model_id)
         cfg.MODEL.WEIGHTS = os.path.join('./output/' + args.model_id, 'model_final.pth')
+        cfg.freeze()                    # make the configuration unchangeable during the training process
 
         trainer = Trainer(cfg)
         trainer.resume_or_load(resume=False)

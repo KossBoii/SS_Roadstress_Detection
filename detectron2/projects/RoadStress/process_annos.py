@@ -9,17 +9,17 @@ def combine_annos(anno1, anno2, model_id):
         annos2 = json.load(f2)
     
     result_annos = {**annos2, **annos1}
-    with open('combined_annos_' + model_id + '.json', "w") as f:
+    with open('./pseudo/combined_annos_' + model_id + '.json', "w") as f:
         f.write(json.dumps(result_annos, separators=(',', ':')))
     f.close()
 
     str = ""
-    with open('combined_annos_' + model_id + '.json', "r") as f:
+    with open('./pseudo/combined_annos_' + model_id + '.json', "r") as f:
         str = f.read()
         re.sub('\n', '', str)
         re.sub(' ', '', str)
 
-    with open('combined_annos_' + model_id + '.json', "w") as f:
+    with open('./pseudo/combined_annos_' + model_id + '.json', "w") as f:
         f.write(str)
 
-    return 'combined_annos_' + model_id + '.json'
+    return './pseudo/combined_annos_' + model_id + '.json'
