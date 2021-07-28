@@ -1,6 +1,9 @@
 from utils import *
 import sys
 logger = logging.getLogger("detectron2")
+from detectron2.utils.visualizer import Visualizer, ColorMode
+import random
+from process_annos import combine_annos
 
 '''
     Backbone model:
@@ -20,7 +23,7 @@ logger = logging.getLogger("detectron2")
 ''' 
 def get_roadstress_dicts_modified(img_dir, anno_json_name):
     # Load and read json file stores information about annotations
-    json_file = os.path.join(img_dir, anno_json_name)
+    json_file = './pseudo/' + anno_json_name
     with open(json_file) as f:
         imgs_anns = json.load(f)
 
@@ -70,14 +73,14 @@ def config(args, name):
     # dataset configuration  
     cfg.DATASETS.TRAIN = (args.training_dataset,)
     
-    cfg.DATALOADER.NUM_WORKERS = 2
+    cfg.DATALOADER.NUM_WORKERS = 8
     cfg.SOLVER.IMS_PER_BATCH = 2                    # 2 GPUs --> each GPU will see 1 image per batch
     cfg.SOLVER.WARMUP_ITERS = 2000                  # 
     cfg.SOLVER.BASE_LR = 0.001
-    cfg.SOLVER.MAX_ITER = 1000
+    cfg.SOLVER.MAX_ITER = 20000
     cfg.SOLVER.CHECKPOINT_PERIOD = 10000
     cfg.MODEL.ANCHOR_GENERATOR.SIZES = [[8,16,32,64,128]]
-    cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 512	# 1024
+    cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 128	# 1024
     cfg.MODEL.ROI_HEADS.NUM_CLASSES = 1             # 1 category (roadway stress)
 
     cfg.MODEL.ANCHOR_GENERATOR.ASPECT_RATIOS = [[0.25, 0.5, 1.0, 2.0]]	# [[0.25, 0.5, 1.0, 2.0, 4.0, 8.0]]
@@ -119,26 +122,130 @@ class Trainer(DefaultTrainer):
             output_folder = "coco_eval"
         return COCOEvaluator(dataset_name, cfg, True, output_folder)
 
+def run_on_image(predictor, img_path):
+    img = cv2.imread(img_path)
+
+    # compute prediction
+    predictions = predictor(img)
+
+    dicts = {}
+    if "instances" in predictions:
+        instances = predictions["instances"].to(torch.device("cpu"))
+        count = len(instances)
+
+        # Get binary mask for each instances
+        bin_masks = instances.get("pred_masks").detach().numpy()
+        dicts["filename"] = img_path[-12:]
+        dicts["size"] = random.randint(1000000, 9999999)
+
+        regions = []
+        for i in range(0,len(instances)):
+            bin_mask = bin_masks[i]
+                    
+            # convert binary mask to polygon
+            pairs = mask_to_poly(bin_mask)
+            x_pts = []
+            y_pts = []
+
+            if len(pairs) == 0 or len(pairs[0]) == 0:
+                count = count - 1
+                continue
+                    
+            for j in range(0, len(pairs[0]), 2):
+                x_pts.append(pairs[0][j])
+
+            for j in range(1, len(pairs[0]), 2):
+                y_pts.append(pairs[0][j])
+
+            region = {}
+            temp = {}
+            # shape_attributes
+            temp['name'] = 'polygon'
+            temp['all_points_x'] = x_pts
+            temp['all_points_y'] = y_pts
+            region['shape_attributes'] = temp
+
+            # region_attributes
+            region['region_attributes'] = {
+                'name': 'roadstress'
+            }
+            regions.append(region)
+    
+    dicts['regions'] = region
+    dicts['file_attributes'] = {}
+
+    return dicts, count
+
 def main(args):
-    # Register the dataset:
-    for d in ["train"]:
-        DatasetCatalog.register(args.training_dataset , lambda: get_roadstress_dicts_modified(
-            os.path.join(args.training_path, args.training_dataset), args.json_name))
-        MetadataCatalog.get(args.training_dataset).set(thing_classes=["roadstress"])            # specify the category names
-        MetadataCatalog.get(args.training_dataset).set(evaluator_type="coco")                   # coco evaluator
-    print("Done Registering the dataset")
+    # get manually annotated images
+    man_anno_imgs = []
+    for img_path in glob.iglob('./dataset/train/'+ args.training_dataset + "/*.JPG"):
+        file_name = img_path[-12:]
+        man_anno_imgs.append(file_name)
 
-    # Getting the metadata for the roadstress dataset    
-    roadstress_metadata = MetadataCatalog.get(args.training_dataset)
-    cfg = config(args, args.training_dataset)                      # setup the config from the cmd arguments
-    cfg.dump()
+    # Load cfg
+    cfg = get_cfg()
+    cfg.merge_from_file(os.path.join('./output/' + args.model_id, 'config.yaml'))
+    cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.50
+    cfg.TEST.DETECTIONS_PER_IMAGE = 1000
+    cfg.MODEL.WEIGHTS = os.path.join('./output/' + args.model_id, 'model_final.pth')
+    cfg.MODEL.RPN.PRE_NMS_TOPK_TRAIN = 5000
+    cfg.MODEL.RPN.PRE_NMS_TOPK_TEST = 5000
+    cfg.MODEL.RPN.POST_NMS_TOPK_TRAIN = 5000
+    cfg.MODEL.RPN.POST_NMS_TOPK_TEST = 5000
 
-    #----------------------------------------- Trainer Training Loop ----------------------------------------------------
-    trainer = Trainer(cfg)
-    trainer.resume_or_load(resume=False)
-    trainer.train()    
-    print("Finish training the model. Run inference and evaluation!")
-    return do_test(cfg, trainer.model)
+    # Load model and checkpoint
+    model = build_model(cfg)
+    DetectionCheckpointer(model, save_dir=cfg.OUTPUT_DIR).load(cfg.MODEL.WEIGHTS)
+    predictor = DefaultPredictor(cfg)
+    
+    TRAINING_SAMPLE_SIZE = 20
+    pseudo_ratios = [0.25, 0.5, 0.75]
+
+    for pseudo_num in pseudo_ratios:
+        num_imgs_pseudo = int(TRAINING_SAMPLE_SIZE / (1 - pseudo_num) * pseudo_num)
+
+        # Compute pseudo-label
+        count = 0
+        result_dicts = {}
+
+        for img_path in glob.iglob('./dataset/pseudo/'+ args.training_dataset + "/*.JPG"):
+            if img_path[-12:] in man_anno_imgs:
+                continue
+            if count == num_imgs_pseudo:
+                break
+            if count < num_imgs_pseudo:
+                result, instance_count = run_on_image(predictor, img_path)
+
+                result_dicts[result["filename"] + "." + str(result["size"])] = result
+                print("Finish generate predictions for %s. Predict %d instances" % (result["filename"], instance_count))
+
+                # save the pseudo-label annotation file
+                with open('./pseudo/pseudoLabel_' + cfg.OUTPUT_DIR[-14:] + '_' + num_imgs_pseudo + '.json', "w") as f:
+                    json.dump(result_dicts, f)
+
+        # Combine pseudo-label with original annotation file
+        com_annos_filename = combine_annos('.dataset/train/' + args.training_dataset + '/via_export_json.json', 
+                        './pseudo/pseudoLabel_' + cfg.OUTPUT_DIR[-14:] + '_' + num_imgs_pseudo + '.json', 
+                        cfg.OUTPUT_DIR[-14:]
+        )
+
+        #----------------------------------------- Trainer Training Loop ----------------------------------------------------
+        # Register the dataset:
+        for d in ["train"]:
+            DatasetCatalog.register(args.training_dataset , lambda: get_roadstress_dicts_modified(
+                '.dataset/pseudo/' + args.training_dataset, com_annos_filename)
+            )
+            MetadataCatalog.get(args.training_dataset).set(thing_classes=["roadstress"])            # specify the category names
+            MetadataCatalog.get(args.training_dataset).set(evaluator_type="coco")                   # coco evaluator
+        print("Done Registering the dataset")
+
+        trainer = Trainer(cfg)
+        trainer.resume_or_load(resume=False)
+        trainer.train()
+        
+        print("Finish training the model. Run inference and evaluation!")
+        do_test(cfg, trainer.model)
 
 def custom_default_argument_parser(epilog=None):
     """
